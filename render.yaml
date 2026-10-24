@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: elite-gateway
+    runtime: node
+    plan: free
+    buildCommand: echo ok
+    startCommand: node server.mjs
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOW_ORIGIN
+        value: https://89853647656health-sketch.github.io
+      - key: OPENAI_API_KEY
+        sync: false
