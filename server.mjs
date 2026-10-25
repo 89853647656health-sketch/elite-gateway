@@ -12,6 +12,7 @@ http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, {});
   if (req.url === "/health" && req.method === "GET") return send(res, 200, { ok: true });
   if (req.method === "POST" && req.url === "/chat") return chat(req, res);
+  if (req.method === "POST" && req.url === "/tts") return tts(req, res);
   if (req.method !== "POST" || req.url !== "/session") return send(res, 404, { error: { message: "not found" } });
   if (req.method === "GET") return send(res, 200, { ok: true });
   const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
@@ -45,4 +46,27 @@ async function chat(req, res) {
     if (!r.ok) return send(res, r.status === 402 ? 402 : 502, { error: { message: d.error?.message || "upstream error " + r.status } });
     send(res, 200, { reply: (d.choices?.[0]?.message?.content || "").trim() });
   } catch { send(res, 504, { error: { message: "model timeout" } }); }
+}
+
+const thits = new Map();
+const TTS_INS = { ru: "Тёплый, спокойный, профессиональный женский голос. Говори естественно, как живой человек, на чистом русском языке, в умеренном темпе, с мягкими живыми интонациями.",
+  en: "A warm, calm, professional female speaker. Speak natural, fluent English like a real person, at a relaxed moderate pace with gentle, lively intonation." };
+async function tts(req, res) {
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
+  thits.set(ip, (thits.get(ip) || []).filter(t => now - t < 3600e3).concat(now)); if (thits.get(ip).length > 120) return send(res, 429, { error: { message: "limit reached, try later" } });
+  const key = process.env.OPENAI_API_KEY; if (!key) return send(res, 503, { error: { message: "server key not configured" } });
+  let body = ""; for await (const c of req) { body += c; if (body.length > 10000) return send(res, 413, { error: { message: "too large" } }); }
+  let j; try { j = JSON.parse(body || "{}"); } catch { return send(res, 400, { error: { message: "bad json" } }); }
+  const text = String(j.text || "").trim().slice(0, 800); if (!text) return send(res, 400, { error: { message: "empty text" } });
+  const lang = j.lang === "en" ? "en" : "ru"; let last = "";
+  for (const voice of ["marin", "nova", "shimmer"]) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-4o-mini-tts", voice, input: text, instructions: TTS_INS[lang], response_format: "mp3" }), signal: AbortSignal.timeout(30000) });
+      if (r.ok) { const buf = Buffer.from(await r.arrayBuffer()); res.writeHead(200, { ...cors, "Content-Type": "audio/mpeg", "Content-Length": buf.length, "Cache-Control": "no-store" }); return res.end(buf); }
+      const d = await r.json().catch(() => ({})); last = d.error?.message || "upstream " + r.status;
+      if (r.status === 401 || r.status === 429) break;
+    } catch { last = "tts timeout"; }
+  }
+  send(res, 502, { error: { message: last } });
 }
