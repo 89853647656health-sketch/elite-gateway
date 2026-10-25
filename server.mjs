@@ -105,7 +105,7 @@ async function ask(req, res) {
   const lang = j.lang === "en" ? "en" : "ru";
   const hist = (Array.isArray(j.messages) ? j.messages : []).filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-12).map(m => ({ role: m.role, content: m.content.slice(0, 1000) }));
   if (!hist.length || hist[hist.length - 1].role !== "user") return send(res, 400, { error: { message: "no question" } });
-  const sys = PROMPT.split("Тон сдержанный")[0] + "Тон сдержанный, уверенный, профессиональный, без продаж. Ты отвечаешь в текстовом чате на сайте." + PROMPT.slice(PROMPT.indexOf("\n\nТЕКСТ:"));
+  const sys = PROMPT.split("Тон сдержанный")[0] + "Тон сдержанный, уверенный, профессиональный, без продаж. Ты отвечаешь в текстовом чате на сайте." + PROMPT.slice(PROMPT.indexOf("\n\nКОНТАКТЫ"));
   let r;
   try {
     r = await fetch("https://api.x.ai/v1/chat/completions", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
