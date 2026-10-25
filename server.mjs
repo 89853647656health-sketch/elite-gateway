@@ -12,6 +12,7 @@ const send = (res, code, obj) => { res.writeHead(code, { ...cors, "Content-Type"
 http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, {});
   if (req.url === "/health" && req.method === "GET") return send(res, 200, { ok: true });
+  if (req.url === "/dbg-ip") return send(res, 200, { xff: req.headers["x-forwarded-for"], tci: req.headers["true-client-ip"], cf: req.headers["cf-connecting-ip"], xr: req.headers["x-real-ip"], ra: req.socket.remoteAddress });
   if (req.method === "POST" && req.url === "/chat") return chat(req, res);
   if (req.method === "POST" && req.url === "/ask") return ask(req, res);
   if (req.method === "POST" && req.url === "/tts") return tts(req, res);
