@@ -66,6 +66,7 @@ test("/post: non-owner ignored, owner gets draft with confirm, publish only on o
   await m.tg.handleUpdate({ callback_query: { id: "q", data: cb, from: user({ username: "AIA_369", id: 42 }), message: { chat: { id: 42 } } } });
   assert.equal(m.sent().filter(s => s.b.chat_id === "@arselite").length, 1, "draft single-use");
 });
+test("/post without channel refuses politely", async () => { const m = mk({ TG_CHANNEL_ID: "" }); await m.tg.handleUpdate(dm("/post x", user({ username: "AIA_369" }))); assert.match(m.sent()[0].b.text, /пока не подключена/); assert.equal(m.xai().length, 0); });
 test("TG_OWNER_ID overrides username (spoof-proof)", () => {
   const m = mk({ TG_OWNER_ID: "42" });
   assert.equal(m.tg.isOwner({ id: 5, username: "AIA_369" }), false); assert.equal(m.tg.isOwner({ id: 42 }), true);
@@ -74,7 +75,7 @@ test("webhook route: inert without token, checks path + header secret", async ()
   const run = async (env, url, hdr) => { const { tg } = mk(env); let code; const req = { url, headers: hdr, async *[Symbol.asyncIterator]() { yield '{"update_id":1}'; } };
     await tg.route(req, {}, (_r, c) => { code = c; }); return code; };
   assert.equal(await run({ TELEGRAM_BOT_TOKEN: "" }, "/tg/s3cret", { "x-telegram-bot-api-secret-token": "s3cret" }), 503);
-  assert.equal(await run({}, "/tg/wrong", { "x-telegram-bot-api-secret-token": "s3cret" }), 404);
-  assert.equal(await run({}, "/tg/s3cret", {}), 404);
+  assert.equal(await run({}, "/tg/wrong", { "x-telegram-bot-api-secret-token": "s3cret" }), 403);
+  assert.equal(await run({}, "/tg/s3cret", {}), 403);
   assert.equal(await run({}, "/tg/s3cret", { "x-telegram-bot-api-secret-token": "s3cret" }), 200);
 });

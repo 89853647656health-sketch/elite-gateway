@@ -78,7 +78,7 @@ export function createTg({ env = process.env, fetchFn = fetch, prompt = "", now 
   }
   async function handlePost(m, arg) {
     if (!isOwner(m.from) || m.chat.type !== "private") return;      // silently ignore non-owners and groups
-    if (!env.TG_CHANNEL_ID) return api("sendMessage", { chat_id: m.chat.id, text: "Канал не настроен (TG_CHANNEL_ID)." });
+    if (!env.TG_CHANNEL_ID) return api("sendMessage", { chat_id: m.chat.id, text: "Публикация в канал пока не подключена: канал ещё не настроен. Как только канал будет привязан, команда /post начнёт готовить черновики с подтверждением." });
     if (!arg) return api("sendMessage", { chat_id: m.chat.id, text: "Напишите: /post тема или черновик текста поста." });
     const lang = langOf(m.from, arg);
     const text = await grok(prompt + guardRules(lang) + "\n\nЗАДАЧА: Владелец просит подготовить пост для канала АРС-ЭЛИТ по его теме ниже. Напиши связной прозой, без списков и тире, 3-6 предложений, только факты из текста, упомяни, что проект на стадии прототипа, если уместно. Верни только текст поста.",
@@ -115,7 +115,7 @@ export function createTg({ env = process.env, fetchFn = fetch, prompt = "", now 
   async function route(req, res, send) {
     if (!env.TELEGRAM_BOT_TOKEN || !env.TG_WEBHOOK_SECRET) return send(res, 503, { error: { message: "telegram not configured" } });
     const path = req.url.split("?")[0].slice(4);
-    if (path !== env.TG_WEBHOOK_SECRET || req.headers["x-telegram-bot-api-secret-token"] !== env.TG_WEBHOOK_SECRET) return send(res, 404, { error: { message: "not found" } });
+    if (path !== env.TG_WEBHOOK_SECRET || req.headers["x-telegram-bot-api-secret-token"] !== env.TG_WEBHOOK_SECRET) return send(res, 403, { error: { message: "forbidden" } });
     let body = ""; for await (const c of req) { body += c; if (body.length > 200000) return send(res, 413, {}); }
     send(res, 200, { ok: true });                                   // ack fast, process async
     let u; try { u = JSON.parse(body); } catch { return; }
