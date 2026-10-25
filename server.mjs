@@ -84,6 +84,6 @@ async function grokSession(req, res) {
     const r = await fetch("https://api.x.ai/v1/realtime/client_secrets", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" }, body: JSON.stringify({ expires_after: { seconds: 300 } }), signal: AbortSignal.timeout(15000) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.value) return send(res, 502, { error: { message: j.error?.message || j.error || "upstream " + r.status } });
-    send(res, 200, { value: j.value, expires_at: j.expires_at, model: "grok-voice-latest", voice: "eve", instructions: { ru: PROMPT + "\n\n" + GVOICE.ru, en: PROMPT + "\n\n" + GVOICE.en }, lang });
+    send(res, 200, { value: j.value, expires_at: j.expires_at, model: "grok-voice-latest", voice: { ru: "celeste", en: "eve" }, instructions: { ru: PROMPT + "\n\n" + GVOICE.ru, en: PROMPT + "\n\n" + GVOICE.en }, lang });
   } catch { send(res, 504, { error: { message: "xai timeout" } }); }
 }
