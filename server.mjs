@@ -7,6 +7,7 @@ const PROMPT = "Ты Elite AI, голосовой ассистент демо с
 const session = { type: "realtime", model: process.env.MODEL || "gpt-realtime", instructions: PROMPT, audio: { output: { voice: "marin" } } };
 const cors = { "Access-Control-Allow-Origin": ORIGIN, "Access-Control-Allow-Headers": "X-Api-Key, Content-Type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const hits = new Map();
+const ipOf = req => req.headers["true-client-ip"] || req.headers["cf-connecting-ip"] || (req.headers["x-forwarded-for"] || "").split(",").map(x => x.trim()).filter(Boolean).pop() || req.socket.remoteAddress;
 const send = (res, code, obj) => { res.writeHead(code, { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(obj)); };
 http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, {});
@@ -17,7 +18,7 @@ http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url.startsWith("/grok-session")) return grokSession(req, res);
   if (req.method !== "POST" || req.url !== "/session") return send(res, 404, { error: { message: "not found" } });
   if (req.method === "GET") return send(res, 200, { ok: true });
-  const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
+  const ip = ipOf(req); const now = Date.now();
   hits.set(ip, (hits.get(ip) || []).filter(t => now - t < 3600e3).concat(now)); if (hits.get(ip).length > 10) return send(res, 429, { error: { message: "limit reached, try later" } });
   const key = process.env.OPENAI_API_KEY;
   if (!key) return send(res, 503, { error: { message: "server key not configured" } });
@@ -33,7 +34,7 @@ const LANG = { en: "LANGUAGE: The visitor selected English. Answer only in Engli
   ru: "ЯЗЫК: Посетитель выбрал русский. Отвечай только по-русски. Говори по-русски чисто, как носитель языка, без малейшего акцента, два-четыре коротких предложения живой речью, без списков и без разметки." };
 const chits = new Map();
 async function chat(req, res) {
-  const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
+  const ip = ipOf(req); const now = Date.now();
   chits.set(ip, (chits.get(ip) || []).filter(t => now - t < 3600e3).concat(now)); if (chits.get(ip).length > 60) return send(res, 429, { error: { message: "limit reached, try later" } });
   const key = process.env.DEEPSEEK_API_KEY; if (!key) return send(res, 503, { error: { message: "server key not configured" } });
   let body = ""; for await (const c of req) { body += c; if (body.length > 50000) return send(res, 413, { error: { message: "too large" } }); }
@@ -54,7 +55,7 @@ const thits = new Map();
 const TTS_INS = { ru: "Тёплый, спокойный, профессиональный женский голос. Говори естественно, как живой человек, как носитель языка, без малейшего акцента, на чистом русском языке с правильными ударениями, в умеренном темпе, с мягкими живыми интонациями.",
   en: "A warm, calm, professional female speaker. Speak English with a native General American accent, natural and fluent like a real person, at a relaxed moderate pace with gentle, lively intonation." };
 async function tts(req, res) {
-  const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
+  const ip = ipOf(req); const now = Date.now();
   thits.set(ip, (thits.get(ip) || []).filter(t => now - t < 3600e3).concat(now)); if (thits.get(ip).length > 120) return send(res, 429, { error: { message: "limit reached, try later" } });
   const key = process.env.OPENAI_API_KEY; if (!key) return send(res, 503, { error: { message: "server key not configured" } });
   let body = ""; for await (const c of req) { body += c; if (body.length > 10000) return send(res, 413, { error: { message: "too large" } }); }
@@ -77,7 +78,7 @@ const ghits = new Map();
 const GVOICE = { ru: "Говори по-русски чисто, как носитель языка, без малейшего акцента, с естественными русскими интонациями и правильными ударениями. Говори только по-русски живой естественной разговорной речью, тепло и спокойно, как живой человек. Отвечай коротко, два-четыре предложения, без списков. Если собеседник перебивает, сразу замолкай и слушай.",
   en: "Speak English with a native General American accent, no foreign accent at all. Speak only English, in a warm, calm, natural conversational voice like a real person. Translate the facts from the text faithfully (Elite is a company, founders Marius and Arsen, legal entity in the UAE, demo now, launch planned for November). Keep answers short, two to four sentences, no lists. If interrupted, stop and listen." };
 async function grokSession(req, res) {
-  const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
+  const ip = ipOf(req); const now = Date.now();
   // demo limit: 3 voice sessions per IP per 24h (in memory, resets on restart)
   const gl = (ghits.get(ip) || []).filter(t => now - t < 86400e3); if (gl.length >= 3) { ghits.set(ip, gl); return send(res, 429, { error: { message: "demo voice limit reached", code: "demo_limit" } }); }
   ghits.set(ip, gl.concat(now));
@@ -96,7 +97,7 @@ const ASK_MODEL = process.env.ASK_MODEL || "grok-4.20-0309-non-reasoning";
 const ASK_LANG = { en: "LANGUAGE: Answer only in English, translating the facts from the text faithfully (Elite is a company, founders Marius and Arsen, legal entity in the UAE, demo now, launch planned for November). Write 2-5 sentences of flowing prose, no lists, no markdown, no headings. Digits for numbers and prices are fine.",
   ru: "ЯЗЫК: Называй условия и цены точно как в тексте, без своих добавлений. Отвечай только по-русски, обращайся к собеседнику на «вы», два-пять предложений связной прозы, без списков, без разметки и заголовков. Числа и цены можно писать цифрами." };
 async function ask(req, res) {
-  const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
+  const ip = ipOf(req); const now = Date.now();
   ahits.set(ip, (ahits.get(ip) || []).filter(t => now - t < 3600e3).concat(now)); if (ahits.get(ip).length > 60) return send(res, 429, { error: { message: "limit reached, try later" } });
   const key = process.env.XAI_API_KEY; if (!key) return send(res, 503, { error: { message: "server key not configured" } });
   let body = ""; for await (const c of req) { body += c; if (body.length > 50000) return send(res, 413, { error: { message: "too large" } }); }
