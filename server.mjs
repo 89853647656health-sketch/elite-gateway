@@ -12,6 +12,7 @@ http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") return send(res, 204, {});
   if (req.url === "/health" && req.method === "GET") return send(res, 200, { ok: true });
   if (req.method === "POST" && req.url === "/chat") return chat(req, res);
+  if (req.method === "POST" && req.url === "/ask") return ask(req, res);
   if (req.method === "POST" && req.url === "/tts") return tts(req, res);
   if (req.method === "POST" && req.url.startsWith("/grok-session")) return grokSession(req, res);
   if (req.method !== "POST" || req.url !== "/session") return send(res, 404, { error: { message: "not found" } });
@@ -86,4 +87,37 @@ async function grokSession(req, res) {
     if (!r.ok || !j.value) return send(res, 502, { error: { message: j.error?.message || j.error || "upstream " + r.status } });
     send(res, 200, { value: j.value, expires_at: j.expires_at, model: "grok-voice-latest", voice: { ru: "celeste", en: "eve" }, instructions: { ru: PROMPT + "\n\n" + GVOICE.ru, en: PROMPT + "\n\n" + GVOICE.en }, lang });
   } catch { send(res, 504, { error: { message: "xai timeout" } }); }
+}
+
+const ahits = new Map();
+const ASK_MODEL = process.env.ASK_MODEL || "grok-4.20-0309-non-reasoning";
+const ASK_LANG = { en: "LANGUAGE: Answer only in English, translating the facts from the text faithfully (Elite is a company, founders Marius and Arsen, legal entity in the UAE, demo now, launch planned for November). Write 2-5 sentences of flowing prose, no lists, no markdown, no headings. Digits for numbers and prices are fine.",
+  ru: "ЯЗЫК: Отвечай только по-русски, обращайся к собеседнику на «вы», два-пять предложений связной прозы, без списков, без разметки и заголовков. Числа и цены можно писать цифрами." };
+async function ask(req, res) {
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
+  ahits.set(ip, (ahits.get(ip) || []).filter(t => now - t < 3600e3).concat(now)); if (ahits.get(ip).length > 60) return send(res, 429, { error: { message: "limit reached, try later" } });
+  const key = process.env.XAI_API_KEY; if (!key) return send(res, 503, { error: { message: "server key not configured" } });
+  let body = ""; for await (const c of req) { body += c; if (body.length > 50000) return send(res, 413, { error: { message: "too large" } }); }
+  let j; try { j = JSON.parse(body || "{}"); } catch { return send(res, 400, { error: { message: "bad json" } }); }
+  const lang = j.lang === "en" ? "en" : "ru";
+  const hist = (Array.isArray(j.messages) ? j.messages : []).filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-12).map(m => ({ role: m.role, content: m.content.slice(0, 1000) }));
+  if (!hist.length || hist[hist.length - 1].role !== "user") return send(res, 400, { error: { message: "no question" } });
+  const sys = PROMPT.split("Тон сдержанный")[0] + "Тон сдержанный, уверенный, профессиональный, без продаж. Ты отвечаешь в текстовом чате на сайте." + PROMPT.slice(PROMPT.indexOf("\n\nТЕКСТ:"));
+  let r;
+  try {
+    r = await fetch("https://api.x.ai/v1/chat/completions", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: ASK_MODEL, stream: true, max_tokens: 400, temperature: 0.5, messages: [{ role: "system", content: sys + "\n\n" + ASK_LANG[lang] }, ...hist] }), signal: AbortSignal.timeout(45000) });
+  } catch { return send(res, 504, { error: { message: "model timeout" } }); }
+  if (!r.ok) { const d = await r.json().catch(() => ({})); return send(res, 502, { error: { message: d.error?.message || d.error || "upstream " + r.status } }); }
+  res.writeHead(200, { ...cors, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
+  const dec = new TextDecoder(); let buf = "";
+  try {
+    for await (const chunk of r.body) {
+      buf += dec.decode(chunk, { stream: true }); let i;
+      while ((i = buf.indexOf("\n")) >= 0) { const ln = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!ln.startsWith("data:")) continue; const p = ln.slice(5).trim(); if (p === "[DONE]") continue;
+        try { const t = JSON.parse(p).choices?.[0]?.delta?.content; if (t) res.write(t); } catch {} }
+    }
+  } catch {}
+  res.end();
 }
