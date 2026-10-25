@@ -78,14 +78,16 @@ const GVOICE = { ru: "Говори по-русски чисто, как носи
   en: "Speak English with a native General American accent, no foreign accent at all. Speak only English, in a warm, calm, natural conversational voice like a real person. Translate the facts from the text faithfully (Elite is a company, founders Marius and Arsen, legal entity in the UAE, demo now, launch planned for November). Keep answers short, two to four sentences, no lists. If interrupted, stop and listen." };
 async function grokSession(req, res) {
   const ip = req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress; const now = Date.now();
-  ghits.set(ip, (ghits.get(ip) || []).filter(t => now - t < 3600e3).concat(now)); if (ghits.get(ip).length > 20) return send(res, 429, { error: { message: "limit reached, try later" } });
+  // demo limit: 3 voice sessions per IP per 24h (in memory, resets on restart)
+  const gl = (ghits.get(ip) || []).filter(t => now - t < 86400e3); if (gl.length >= 3) { ghits.set(ip, gl); return send(res, 429, { error: { message: "demo voice limit reached", code: "demo_limit" } }); }
+  ghits.set(ip, gl.concat(now));
   const key = process.env.XAI_API_KEY; if (!key) return send(res, 503, { error: { message: "server key not configured" } });
   const lang = /lang=en/.test(req.url) ? "en" : "ru";
   try {
-    const r = await fetch("https://api.x.ai/v1/realtime/client_secrets", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" }, body: JSON.stringify({ expires_after: { seconds: 300 } }), signal: AbortSignal.timeout(15000) });
+    const r = await fetch("https://api.x.ai/v1/realtime/client_secrets", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" }, body: JSON.stringify({ expires_after: { seconds: 330 } }), signal: AbortSignal.timeout(15000) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.value) return send(res, 502, { error: { message: j.error?.message || j.error || "upstream " + r.status } });
-    send(res, 200, { value: j.value, expires_at: j.expires_at, model: "grok-voice-latest", voice: { ru: "celeste", en: "eve" }, instructions: { ru: PROMPT + "\n\n" + GVOICE.ru, en: PROMPT + "\n\n" + GVOICE.en }, lang });
+    send(res, 200, { value: j.value, expires_at: j.expires_at, model: "grok-voice-latest", max_seconds: 300, remaining: 3 - ghits.get(ip).length, voice: { ru: "celeste", en: "eve" }, instructions: { ru: PROMPT + "\n\n" + GVOICE.ru, en: PROMPT + "\n\n" + GVOICE.en }, lang });
   } catch { send(res, 504, { error: { message: "xai timeout" } }); }
 }
 
